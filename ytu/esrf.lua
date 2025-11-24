@@ -1,5 +1,5 @@
--- Robust Roblox Client-Side UI Layout Manager (Improved, Defensive)
--- Now includes SeasonPassUI deep scanning and forced scroll-frame attaching.
+-- Robust Roblox Client-Side UI Layout Manager (Fixed + Improved)
+-- SeasonPassUI deep-scanning + nested frame resizing + bigger SeasonPass UI
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -9,15 +9,16 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- CONFIG
 local UI_NAMES = { "Gear_Shop", "Seed_Shop", "SeasonPassUI", "PetShop_UI" }
 local UI_PADDING = 20
-local SCROLL_SPEED = 0.3     
+local SCROLL_SPEED = 0.2
 local UI_SCALE = 0.76
 local SCROLL_PAUSE_TIME = 1.2
 
-local function debug(...)
-	-- print("[UI AutoScroll]", ...)
-end
+local function debug(...) end
 
--- --------------- FIND & ARRANGE UIs ----------------
+-------------------------------------------------------
+-- FIND & REGISTER UI
+-------------------------------------------------------
+
 local foundUIs = {}
 
 local function tryAddUI(ui)
@@ -25,11 +26,13 @@ local function tryAddUI(ui)
 		if ui.Name == name then
 			if not table.find(foundUIs, ui) then
 				table.insert(foundUIs, ui)
-				ui.Enabled = true
+
 				if ui:IsA("ScreenGui") then
+					ui.Enabled = true
 					ui.ResetOnSpawn = false
 					ui.IgnoreGuiInset = false
 				end
+
 				debug("Added UI:", ui.Name)
 			end
 		end
@@ -41,9 +44,13 @@ for _, name in ipairs(UI_NAMES) do
 	if ui then tryAddUI(ui) end
 end
 
-playerGui.ChildAdded:Connect(function(child)
-	tryAddUI(child)
+playerGui.ChildAdded:Connect(function(c)
+	tryAddUI(c)
 end)
+
+-------------------------------------------------------
+-- UI CORNER POSITIONS
+-------------------------------------------------------
 
 local cornerPositions = {
 	{anchor = Vector2.new(0, 0), position = UDim2.new(0, UI_PADDING, 0, UI_PADDING)},
@@ -52,41 +59,67 @@ local cornerPositions = {
 	{anchor = Vector2.new(1, 1), position = UDim2.new(1, -UI_PADDING, 1, -UI_PADDING)},
 }
 
+-------------------------------------------------------
+-- DEEP LAYOUT FOR ALL NESTED CHILDREN (IMPORTANT FIX)
+-------------------------------------------------------
+
+local function applyLayoutToDescendants(ui, corner, uiWidth, uiHeight)
+	local extraScale = 1
+	if ui.Name == "SeasonPassUI" then
+		extraScale = 1.7 -- make SeasonPass UI 70% larger
+	end
+
+	for _, obj in ipairs(ui:GetDescendants()) do
+		if obj:IsA("Frame") or obj:IsA("ImageLabel") or obj:IsA("ScrollingFrame") then
+			obj.Visible = true
+			obj.AnchorPoint = corner.anchor
+			obj.Position = corner.position
+			obj.Size = UDim2.new(0, uiWidth, 0, uiHeight)
+
+			local sc = obj:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", obj)
+			sc.Scale = UI_SCALE * extraScale
+		end
+	end
+end
+
+-------------------------------------------------------
+-- ARRANGE UI WINDOWS
+-------------------------------------------------------
+
 local function arrangeUIs()
 	local cam = workspace.CurrentCamera
 	if not cam then return end
+
 	local viewport = cam.ViewportSize
 	local uiWidth = math.floor(viewport.X * 0.35)
 	local uiHeight = math.floor(viewport.Y * 0.45)
 
 	for idx, ui in ipairs(foundUIs) do
 		local corner = cornerPositions[((idx - 1) % #cornerPositions) + 1]
-		for _, child in ipairs(ui:GetChildren()) do
-			if child:IsA("Frame") or child:IsA("ImageLabel") or child:IsA("ScrollingFrame") then
-				child.Visible = true
-				child.AnchorPoint = corner.anchor
-				child.Position = corner.position
-				child.Size = UDim2.new(0, uiWidth, 0, uiHeight)
-				local sc = child:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", child)
-				sc.Scale = UI_SCALE
-			end
-		end
+		applyLayoutToDescendants(ui, corner, uiWidth, uiHeight)
 	end
 end
 
 arrangeUIs()
 workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(arrangeUIs)
 
--- --------------- SCROLL FRAME MANAGEMENT ----------------
+-------------------------------------------------------
+-- MANAGED SCROLL FRAMES
+-------------------------------------------------------
+
 local managedFrames = {}
 
 local function addFrame(sf)
-	for _, entry in ipairs(managedFrames) do
-		if entry.frame == sf then return end
+	for _, e in ipairs(managedFrames) do
+		if e.frame == sf then return end
 	end
 
 	local layout = sf:FindFirstChildOfClass("UIListLayout") or sf:FindFirstChildOfClass("UIPageLayout")
-	table.insert(managedFrames, {frame = sf, listLayout = layout})
+
+	table.insert(managedFrames, {
+		frame = sf,
+		listLayout = layout
+	})
 
 	sf.ScrollingEnabled = true
 	sf.ScrollBarThickness = 8
@@ -94,21 +127,22 @@ local function addFrame(sf)
 	debug("Added ScrollingFrame:", sf:GetFullName())
 end
 
--- FORCE DETECT ALL SCROLLING FRAMES (SeasonPassUI fix)
+-------------------------------------------------------
+-- RESCAN ALL (FOR SEASONPASS NESTED FIX)
+-------------------------------------------------------
+
 local function rescanAll()
 	for _, ui in ipairs(foundUIs) do
-		for _, desc in ipairs(ui:GetDescendants()) do
-			if desc:IsA("ScrollingFrame") then
-				addFrame(desc)
+		for _, obj in ipairs(ui:GetDescendants()) do
+			if obj:IsA("ScrollingFrame") then
+				addFrame(obj)
 			end
 		end
 	end
 end
 
--- initial scan
 rescanAll()
 
--- rescan every second (SeasonPassUI nested fix)
 task.spawn(function()
 	while true do
 		rescanAll()
@@ -116,44 +150,41 @@ task.spawn(function()
 	end
 end)
 
--- --------------- MAX SCROLL LOGIC ----------------
+-------------------------------------------------------
+-- AUTO SCROLL LOGIC
+-------------------------------------------------------
+
 local function getContentHeight(entry)
 	local f = entry.frame
 	if not f then return 0 end
 
 	if entry.listLayout then
-		if entry.listLayout.AbsoluteContentSize then
-			return entry.listLayout.AbsoluteContentSize.Y
-		end
+		return entry.listLayout.AbsoluteContentSize.Y
 	end
 
-	local offset = f.CanvasSize.Y.Offset or 0
-	local scale = f.CanvasSize.Y.Scale or 0
-	return offset + (scale * f.AbsoluteSize.Y)
+	local off = f.CanvasSize.Y.Offset or 0
+	local sc = f.CanvasSize.Y.Scale or 0
+	return off + sc * f.AbsoluteSize.Y
 end
 
 local function getMaxScroll(entry)
 	local f = entry.frame
 	if not f then return 0 end
-
 	if f.AbsoluteSize.Y <= 0 then return 0 end
-
-	local contentHeight = getContentHeight(entry)
-	return math.max(0, contentHeight - f.AbsoluteSize.Y)
+	return math.max(0, getContentHeight(entry) - f.AbsoluteSize.Y)
 end
-
--- --------------- AUTO-SCROLL LOOP ----------------
-local scrollDirection = 1
-local scrollProgress = 0
-local isPaused = false
-local pauseTimer = 0
 
 local function progressToY(progress, entry)
 	local maxScroll = getMaxScroll(entry)
 	if maxScroll <= 0 then return 0 end
 	progress = math.clamp(progress, 0, 1)
-	return math.floor(progress * maxScroll)
+	return math.floor(maxScroll * progress)
 end
+
+local scrollDirection = 1
+local scrollProgress = 0
+local isPaused = false
+local pauseTimer = 0
 
 RunService.RenderStepped:Connect(function(dt)
 	if #managedFrames == 0 then return end
@@ -169,8 +200,8 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
-	local normalizedSpeed = SCROLL_SPEED * 0.25
-	scrollProgress += dt * scrollDirection * normalizedSpeed
+	local spd = SCROLL_SPEED * 0.25
+	scrollProgress += dt * scrollDirection * spd
 
 	if scrollProgress >= 1 then
 		scrollProgress = 1
@@ -192,4 +223,4 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 end)
 
-debug("Auto-scroll manager loaded.")
+debug("UI Auto-scroll manager loaded.")
