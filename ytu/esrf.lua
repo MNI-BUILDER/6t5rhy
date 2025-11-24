@@ -66,7 +66,7 @@ local cornerPositions = {
 local function applyLayoutToDescendants(ui, corner, uiWidth, uiHeight)
 	local extraScale = 1
 	if ui.Name == "SeasonPassUI" then
-		extraScale = 1.7 -- make SeasonPass UI 70% larger
+		extraScale = 1.2 -- make SeasonPass UI 70% larger
 	end
 
 	for _, obj in ipairs(ui:GetDescendants()) do
