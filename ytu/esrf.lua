@@ -9,14 +9,14 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- CONFIG
 local UI_NAMES = { "Gear_Shop", "Seed_Shop", "SeasonPassUI", "PetShop_UI" }
 local UI_PADDING = 20
-local SCROLL_SPEED = 0.12      -- lower = slower
-local UI_SCALE = 0.75
+local SCROLL_SPEED = 0.3     -- lower = slower
+local UI_SCALE = 0.76
 local SCROLL_PAUSE_TIME = 1.2
 local RESCAN_INTERVAL = 1
-local DEBUG = false            -- set true to show detailed debug & errors
+local DEBUG = true          -- set true to show detailed debug & errors
 
 -- Make SeasonPass bigger by this multiplier (1.0 = same size)
-local SEASON_UI_SIZE_MULTIPLIER = 1.18
+local SEASON_UI_SIZE_MULTIPLIER = 2.18
 
 local function dbg(...)
 	if DEBUG then
